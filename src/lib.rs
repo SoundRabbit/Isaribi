@@ -1,8 +1,5 @@
 extern crate kagura;
+extern crate wasm_bindgen;
+extern crate web_sys;
 
-pub mod frame;
-
-pub use frame::frame;
-
-type Messenger<From, To> = Box<dyn FnOnce(From) -> To + 'static>;
-type MessengerGen<From, To> = Box<dyn Fn() -> Messenger<From, To>>;
+pub mod styled;
