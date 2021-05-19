@@ -1,3 +1,4 @@
+use regex::Regex;
 use std::any;
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
@@ -16,10 +17,14 @@ fn hash_of_type<C>() -> u64 {
     hasher.finish()
 }
 
-fn styled_class<C>(class_name: &str) -> String {
+fn styled_class_prefix<C>() -> String {
     let mut hasher = DefaultHasher::new();
     hasher.write(any::type_name::<C>().as_bytes());
-    format!("_{:X}__{}", hasher.finish(), class_name)
+    format!("{:X}", hasher.finish())
+}
+
+fn styled_class<C>(class_name: &str) -> String {
+    format!("_{}__{}", styled_class_prefix::<C>(), class_name)
 }
 
 pub trait Styled: Sized {
@@ -44,6 +49,7 @@ pub trait Styled: Sized {
 pub struct Style {
     style: Vec<(String, Vec<(String, String)>)>,
     media: Vec<(String, Self)>,
+    class_selecter: Regex,
 }
 
 impl Style {
@@ -51,6 +57,7 @@ impl Style {
         Self {
             style: vec![],
             media: vec![],
+            class_selecter: Regex::new(r"\.([a-zA-Z][a-zA-Z0-9\-_]*)").unwrap(),
         }
     }
 
@@ -86,7 +93,10 @@ impl Style {
 
         for (selector, definition_block) in &self.style {
             let mut rule = String::new();
-            rule += format!(".{}", styled_class::<C>(selector)).as_str();
+            let selector = self
+                .class_selecter
+                .replace_all(selector, format!("._{}__$1", styled_class_prefix::<C>()));
+            rule += &selector;
             rule += "{";
             for (property, value) in definition_block {
                 rule += format!("{}:{};", property, value).as_str();
@@ -184,4 +194,15 @@ macro_rules! style {
         })*
         style
     }};
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn it_works() {
+        assert!(true);
+    }
+
+    #[test]
+    fn gen_style() {}
 }
