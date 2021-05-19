@@ -1,13 +1,14 @@
-use kagura::prelude::*;
 use std::any;
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::HashSet;
 use std::hash::Hasher;
-use wasm_bindgen::JsCast;
+use wasm_bindgen::{prelude::*, JsCast};
 
-thread_local! {static STYLED: RefCell<HashSet<u64>> = RefCell::new(HashSet::new())}
-thread_local! {static SHEET: RefCell<Option<web_sys::CssStyleSheet>> = RefCell::new(None)}
+thread_local! {
+    static STYLED: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
+    static SHEET: RefCell<Option<web_sys::CssStyleSheet>> = RefCell::new(None);
+}
 
 fn hash_of_type<C>() -> u64 {
     let mut hasher = DefaultHasher::new();
@@ -21,9 +22,9 @@ fn styled_class<C>(class_name: &str) -> String {
     format!("_{:X}__{}", hasher.finish(), class_name)
 }
 
-pub trait Styled: Constructor {
+pub trait Styled: Sized {
     fn style() -> Style;
-    fn styled(&self, children: Vec<Html>) -> Html {
+    fn styled<T>(&self, node: T) -> T {
         STYLED.with(|styled| {
             let component_id = hash_of_type::<Self>();
             if styled.borrow().get(&component_id).is_none() {
@@ -33,23 +34,24 @@ pub trait Styled: Constructor {
             }
         });
 
-        Styled::render(self, children)
+        node
     }
-
     fn class(class_name: &str) -> String {
         styled_class::<Self>(class_name)
     }
-
-    fn render(&self, children: Vec<Html>) -> Html;
 }
 
 pub struct Style {
     style: Vec<(String, Vec<(String, String)>)>,
+    media: Vec<(String, Self)>,
 }
 
 impl Style {
     pub fn new() -> Self {
-        Self { style: vec![] }
+        Self {
+            style: vec![],
+            media: vec![],
+        }
     }
 
     pub fn add(
@@ -74,24 +76,51 @@ impl Style {
         }
     }
 
+    pub fn add_media(&mut self, query: impl Into<String>, style: Style) {
+        let query = query.into();
+        self.media.push((query, style));
+    }
+
+    fn rules<C>(&self) -> Vec<String> {
+        let mut res = vec![];
+
+        for (selector, definition_block) in &self.style {
+            let mut rule = String::new();
+            rule += format!(".{}", styled_class::<C>(selector)).as_str();
+            rule += "{";
+            for (property, value) in definition_block {
+                rule += format!("{}:{};", property, value).as_str();
+            }
+            rule += "}";
+
+            res.push(rule);
+        }
+
+        for (query, media_style) in &self.media {
+            let mut rule = String::from("@media ");
+            rule += query;
+            rule += "{";
+            for child_rule in &media_style.rules::<C>() {
+                rule += child_rule;
+            }
+            rule += "}";
+            res.push(rule);
+        }
+
+        res
+    }
+
     fn write<C>(&self) {
         Self::add_style_element();
 
-        for (selector, definition_block) in &self.style {
-            let mut style_sheet = String::new();
-            style_sheet += format!(".{}", styled_class::<C>(selector)).as_str();
-            style_sheet += "{";
-            for (property, value) in definition_block {
-                style_sheet += format!("{}:{};", property, value).as_str();
-            }
-            style_sheet += "}";
-
-            SHEET.with(move |sheet| {
+        for rule in &self.rules::<C>() {
+            SHEET.with(|sheet| {
                 if let Some(sheet) = sheet.borrow().as_ref() {
-                    let _ = sheet.insert_rule_with_index(
-                        style_sheet.as_str(),
-                        sheet.css_rules().unwrap().length(),
-                    );
+                    if let Err(err) = sheet
+                        .insert_rule_with_index(rule.as_str(), sheet.css_rules().unwrap().length())
+                    {
+                        web_sys::console::log_1(&JsValue::from(err));
+                    }
                 }
             });
         }
@@ -133,7 +162,16 @@ impl Style {
 
 #[macro_export]
 macro_rules! style {
-    { $( $selector:literal { $( $property:literal : $value:expr );*;} )* } => {{
+    {
+        $(
+            $selector:literal {$(
+                $property:literal : $value:expr
+            );*;}
+        )*
+        $(
+            @media $query:tt {$($media_style:tt)*}
+        )*
+    } => {{
         #[allow(unused_mut)]
         let mut style = Style::new();
         $(
@@ -141,6 +179,9 @@ macro_rules! style {
                 style.add(format!("{}", $selector), format!("{}", $property), format!("{}", $value));
             )*
         )*
+        $({
+            style.add_media($query, style!{$($media_style)*});
+        })*
         style
     }};
 }
