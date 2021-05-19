@@ -1,55 +1,85 @@
 # Isaribi
 
-```rust
-use kagura::prelude::*;
-use isaribi::styled::{Styled, Style};
-use isaribi::style;
+You can use unique class name by the component. Class names in the component will be mapped to the format: __\[RandomStr\]_\[class name\]. This means that you can write unique style-sheet by the component.
 
-struct Props{}
+Isaribi can be used not only in Yew, but also in Kagura and so on.
+
+## use in Yew
+
+```rust
+extern crate isaribi;
+
+use isaribi::{
+    style,
+    styled::{Style, Styled},
+};
+use wasm_bindgen::prelude::*;
+use yew::prelude::*;
+
+struct Model {}
 
 enum Msg {}
 
-enum On {}
+impl Component for Model {
+    type Message = Msg;
+    type Properties = ();
 
-struct HelloComponent{}
-
-impl Constructor for HelloComponent {
-    fn constructor(_: Self::Props, _: &mut ComponentBuilder<Self::Msg, Self::Sub>) -> Self {
+    fn create(_: Self::Properties, _: ComponentLink<Self>) -> Self {
         Self {}
     }
+
+    fn update(&mut self, _: Self::Message) -> ShouldRender {
+        true
+    }
+
+    fn change(&mut self, _: Self::Properties) -> ShouldRender {
+        false
+    }
+
+    fn view(&self) -> Html {
+        Self::styled(html! {
+            <div class=Self::class("base")>
+                <h1>{"Helllo from Isaribi"}</h1>
+            </div>
+        })
+    }
 }
 
-impl Component for HelloComponent {
-    type Props = Props;
-    type Msg = Msg;
-    type Sub = Sub;
-
-    fn init(&mut self, _: Self::Props, _: &mut ComponentBuilder<Self::Msg, Self::Sub>) {}
-
-    fn update(&mut self, _: Self::Msg) -> Cmd<Self::Msg, Self::Sub> {
-        Cmd::none()
-    }
-
-    fn render(&self, children: Vec<Html>) -> Html {
-        self.styled(children)
-    }
-}
-
-impl Styled for HelloComponent {
-    fn render(&self, _: Vec<Html>) -> Html {
-        Html::h1(
-            Attributes::new().class(Self::class("base")),
-            Events::new(),
-            vec![Html::text("Hello Isaribi")],
-        )
-    }
-
+impl Styled for Model {
     fn style() -> Style {
         style! {
-            "base" {
-                "color": "red";
+            ".base" {
+                "position": "fixed";
+                "top": "0";
+                "left": "0";
+                "width": "100vw";
+                "height": "100vh";
+                "color": "#ffffff";
+            }
+
+            ".base > h1" {
+                "width": "max-content";
+                "margin-left": "auto";
+                "margin-right": "auto";
+            }
+
+            @media "(orientation: landscape)" {
+                ".base" {
+                    "background-color": "#0366d6";
+                }
+            }
+
+            @media "(orientation: portrait)" {
+                ".base" {
+                    "background-color": "#d73a49";
+                }
             }
         }
     }
+}
+
+#[wasm_bindgen(start)]
+pub fn run_app() {
+    App::<Model>::new().mount_to_body();
 }
 ```
