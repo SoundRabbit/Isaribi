@@ -46,6 +46,7 @@ pub trait Styled: Sized {
     }
 }
 
+#[derive(Clone)]
 pub struct Style {
     style: Vec<(String, Vec<(String, String)>)>,
     media: Vec<(String, Self)>,
@@ -86,6 +87,18 @@ impl Style {
     pub fn add_media(&mut self, query: impl Into<String>, style: Style) {
         let query = query.into();
         self.media.push((query, style));
+    }
+
+    pub fn append(&mut self, other: &Self) {
+        for (selector, definition_block) in &other.style {
+            for (property, value) in definition_block {
+                self.add(selector, property, value);
+            }
+        }
+
+        for (query, style) in &other.media {
+            self.add_media(query, style.clone());
+        }
     }
 
     fn rules<C>(&self) -> Vec<String> {
@@ -174,30 +187,46 @@ impl Style {
 macro_rules! style {
     {
         $(
-            $selector:literal {$(
-                $property:literal : $value:expr
+            @import $import:expr;
+        )*
+        $(
+            $selector:tt {$(
+                $property:tt : $value:expr
             );*;}
         )*
         $(
-            @media $query:tt {$($media_style:tt)*}
+            @media $query:tt {$(
+                $media_style:tt
+            )*}
         )*
     } => {{
         #[allow(unused_mut)]
         let mut style = Style::new();
         $(
+            style.append(&($import));
+        )*
+        $(
             $(
                 style.add(format!("{}", $selector), format!("{}", $property), format!("{}", $value));
             )*
         )*
-        $({
+        $(
             style.add_media($query, style!{$($media_style)*});
-        })*
+        )*
         style
     }};
 }
 
 #[cfg(test)]
 mod tests {
+    use super::Style;
+
+    impl PartialEq for Style {
+        fn eq(&self, other: &Self) -> bool {
+            self.style.eq(&other.style) && self.media.eq(&other.media)
+        }
+    }
+
     #[test]
     fn it_works() {
         assert!(true);
