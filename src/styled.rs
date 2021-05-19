@@ -54,11 +54,15 @@ pub struct Style {
 }
 
 impl Style {
+    fn class_selecter() -> Regex {
+        Regex::new(r"\.([a-zA-Z][a-zA-Z0-9\-_]*)").unwrap()
+    }
+
     pub fn new() -> Self {
         Self {
             style: vec![],
             media: vec![],
-            class_selecter: Regex::new(r"\.([a-zA-Z][a-zA-Z0-9\-_]*)").unwrap(),
+            class_selecter: Self::class_selecter(),
         }
     }
 
@@ -183,6 +187,47 @@ impl Style {
     }
 }
 
+macro_rules! return_if {
+    ($x:ident = $y:expr; $z: expr) => {{
+        let $x = $y;
+        if $z {
+            return $x;
+        }
+    }};
+}
+
+impl std::fmt::Debug for Style {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for (selector, definition_block) in &self.style {
+            return_if!(x = write!(f, "{} {}\n", selector, "{"); x.is_err());
+            for (property, value) in definition_block {
+                return_if!(x = write!(f, "    {}: {};\n", property, value); x.is_err());
+            }
+            return_if!(x = write!(f, "{}\n", "}"); x.is_err());
+        }
+
+        for (query, style) in &self.media {
+            return_if!(x = write!(f, "@media {} {}\n", query, "{"); x.is_err());
+
+            for a_line in format!("{:?}", style).split("\n") {
+                if a_line != "" {
+                    return_if!(x = write!(f, "    {}\n", a_line); x.is_err());
+                }
+            }
+
+            return_if!(x = write!(f, "{}\n", "}"); x.is_err());
+        }
+
+        write!(f, "")
+    }
+}
+
+impl PartialEq for Style {
+    fn eq(&self, other: &Self) -> bool {
+        self.style.eq(&other.style) && self.media.eq(&other.media)
+    }
+}
+
 #[macro_export]
 macro_rules! style {
     {
@@ -190,7 +235,7 @@ macro_rules! style {
             @import $import:expr;
         )*
         $(
-            $selector:tt {$(
+            $selector:literal {$(
                 $property:tt : $value:expr
             );*;}
         )*
@@ -221,17 +266,266 @@ macro_rules! style {
 mod tests {
     use super::Style;
 
-    impl PartialEq for Style {
-        fn eq(&self, other: &Self) -> bool {
-            self.style.eq(&other.style) && self.media.eq(&other.media)
-        }
-    }
-
     #[test]
     fn it_works() {
         assert!(true);
     }
 
     #[test]
-    fn gen_style() {}
+    fn debug_style() {
+        let style = Style {
+            style: vec![
+                (
+                    String::from("foo"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+                (
+                    String::from("bar"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+            ],
+            media: vec![],
+            class_selecter: Style::class_selecter(),
+        };
+
+        let style_str = concat!(
+            "foo {\n",
+            "    width: 100px;\n",
+            "    height: 100px;\n",
+            "}\n",
+            "bar {\n",
+            "    width: 100px;\n",
+            "    height: 100px;\n",
+            "}\n",
+        );
+
+        assert_eq!(format!("{:?}", style), style_str);
+    }
+
+    #[test]
+    fn debug_style_with_media() {
+        let media_style = Style {
+            style: vec![
+                (
+                    String::from("foo"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+                (
+                    String::from("bar"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+            ],
+            media: vec![],
+            class_selecter: Style::class_selecter(),
+        };
+        let style = Style {
+            style: vec![
+                (
+                    String::from("foo"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+                (
+                    String::from("bar"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+            ],
+            media: vec![(String::from("query"), media_style)],
+            class_selecter: Style::class_selecter(),
+        };
+
+        let style_str = concat!(
+            "foo {\n",
+            "    width: 100px;\n",
+            "    height: 100px;\n",
+            "}\n",
+            "bar {\n",
+            "    width: 100px;\n",
+            "    height: 100px;\n",
+            "}\n",
+            "@media query {\n",
+            "    foo {\n",
+            "        width: 100px;\n",
+            "        height: 100px;\n",
+            "    }\n",
+            "    bar {\n",
+            "        width: 100px;\n",
+            "        height: 100px;\n",
+            "    }\n",
+            "}\n",
+        );
+
+        assert_eq!(format!("{:?}", style), style_str);
+    }
+
+    #[test]
+    fn gen_style_by_manual() {
+        let style_a = Style {
+            style: vec![
+                (
+                    String::from("foo"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+                (
+                    String::from("bar"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+            ],
+            media: vec![],
+            class_selecter: Style::class_selecter(),
+        };
+
+        let mut style_b = Style::new();
+        style_b.add("foo", "width", "100px");
+        style_b.add("foo", "height", "100px");
+        style_b.add("bar", "width", "100px");
+        style_b.add("bar", "height", "100px");
+
+        assert_eq!(style_a, style_b);
+    }
+
+    #[test]
+    fn gen_style_with_media_by_manual() {
+        let media_style_a = Style {
+            style: vec![
+                (
+                    String::from("foo"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+                (
+                    String::from("bar"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+            ],
+            media: vec![],
+            class_selecter: Style::class_selecter(),
+        };
+        let style_a = Style {
+            style: vec![
+                (
+                    String::from("foo"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+                (
+                    String::from("bar"),
+                    vec![
+                        (String::from("width"), String::from("100px")),
+                        (String::from("height"), String::from("100px")),
+                    ],
+                ),
+            ],
+            media: vec![(String::from("query"), media_style_a)],
+            class_selecter: Style::class_selecter(),
+        };
+
+        let mut media_style_b = Style::new();
+        media_style_b.add("foo", "width", "100px");
+        media_style_b.add("foo", "height", "100px");
+        media_style_b.add("bar", "width", "100px");
+        media_style_b.add("bar", "height", "100px");
+        let mut style_b = Style::new();
+        style_b.add("foo", "width", "100px");
+        style_b.add("foo", "height", "100px");
+        style_b.add("bar", "width", "100px");
+        style_b.add("bar", "height", "100px");
+        style_b.add_media("query", media_style_b);
+
+        assert_eq!(style_a, style_b);
+    }
+
+    #[test]
+    fn gen_style_by_macro() {
+        let mut style_a = Style::new();
+        style_a.add("foo", "width", "100px");
+        style_a.add("foo", "height", "100px");
+        style_a.add("bar", "width", "100px");
+        style_a.add("bar", "height", "100px");
+
+        let style_b = style! {
+            "foo" {
+                "width": "100px";
+                "height": "100px";
+            }
+
+            "bar" {
+                "width": "100px";
+                "height": "100px";
+            }
+        };
+
+        assert_eq!(style_a, style_b);
+    }
+
+    #[test]
+    fn gen_style_with_media_by_macro() {
+        let mut media_style_a = Style::new();
+        media_style_a.add("foo", "width", "100px");
+        media_style_a.add("foo", "height", "100px");
+        media_style_a.add("bar", "width", "100px");
+        media_style_a.add("bar", "height", "100px");
+        let mut style_a = Style::new();
+        style_a.add("foo", "width", "100px");
+        style_a.add("foo", "height", "100px");
+        style_a.add("bar", "width", "100px");
+        style_a.add("bar", "height", "100px");
+        style_a.add_media("query", media_style_a);
+
+        let style_b = style! {
+            "foo" {
+                "width": "100px";
+                "height": "100px";
+            }
+
+            "bar" {
+                "width": "100px";
+                "height": "100px";
+            }
+
+            @media "query" {
+                "foo" {
+                "width": "100px";
+                "height": "100px";
+                }
+
+                "bar" {
+                    "width": "100px";
+                    "height": "100px";
+                }
+            }
+        };
+
+        assert_eq!(style_a, style_b);
+    }
 }
