@@ -29,7 +29,7 @@ fn styled_class<C>(class_name: &str) -> String {
 
 pub trait Styled: Sized {
     fn style() -> Style;
-    fn styled<T>(&self, node: T) -> T {
+    fn styled<T>(node: T) -> T {
         STYLED.with(|styled| {
             let component_id = hash_of_type::<Self>();
             if styled.borrow().get(&component_id).is_none() {
