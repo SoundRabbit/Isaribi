@@ -9,6 +9,7 @@ use wasm_bindgen::{prelude::*, JsCast};
 thread_local! {
     static STYLED: RefCell<HashSet<u64>> = RefCell::new(HashSet::new());
     static SHEET: RefCell<Option<web_sys::CssStyleSheet>> = RefCell::new(None);
+    static CLASS_SELECTER: Regex = Regex::new(r"\.([a-zA-Z][a-zA-Z0-9\-_]*)").unwrap();
 }
 
 fn hash_of_type<C>() -> u64 {
@@ -50,19 +51,13 @@ pub trait Styled: Sized {
 pub struct Style {
     style: Vec<(String, Vec<(String, String)>)>,
     media: Vec<(String, Self)>,
-    class_selecter: Regex,
 }
 
 impl Style {
-    fn class_selecter() -> Regex {
-        Regex::new(r"\.([a-zA-Z][a-zA-Z0-9\-_]*)").unwrap()
-    }
-
     pub fn new() -> Self {
         Self {
             style: vec![],
             media: vec![],
-            class_selecter: Self::class_selecter(),
         }
     }
 
@@ -110,9 +105,12 @@ impl Style {
 
         for (selector, definition_block) in &self.style {
             let mut rule = String::new();
-            let selector = self
-                .class_selecter
-                .replace_all(selector, format!("._{}__$1", styled_class_prefix::<C>()));
+            let selector = CLASS_SELECTER.with(|class_selecter| {
+                class_selecter.replace_all(
+                    selector,
+                    format!("._{}__$1", styled_class_prefix::<C>()).as_str(),
+                )
+            });
             rule += &selector;
             rule += "{";
             for (property, value) in definition_block {
@@ -291,7 +289,6 @@ mod tests {
                 ),
             ],
             media: vec![],
-            class_selecter: Style::class_selecter(),
         };
 
         let style_str = concat!(
@@ -328,7 +325,6 @@ mod tests {
                 ),
             ],
             media: vec![],
-            class_selecter: Style::class_selecter(),
         };
         let style = Style {
             style: vec![
@@ -348,7 +344,6 @@ mod tests {
                 ),
             ],
             media: vec![(String::from("query"), media_style)],
-            class_selecter: Style::class_selecter(),
         };
 
         let style_str = concat!(
@@ -395,7 +390,6 @@ mod tests {
                 ),
             ],
             media: vec![],
-            class_selecter: Style::class_selecter(),
         };
 
         let mut style_b = Style::new();
@@ -427,7 +421,6 @@ mod tests {
                 ),
             ],
             media: vec![],
-            class_selecter: Style::class_selecter(),
         };
         let style_a = Style {
             style: vec![
@@ -447,7 +440,6 @@ mod tests {
                 ),
             ],
             media: vec![(String::from("query"), media_style_a)],
-            class_selecter: Style::class_selecter(),
         };
 
         let mut media_style_b = Style::new();
