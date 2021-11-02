@@ -50,6 +50,7 @@ pub trait Styled: Sized {
 #[derive(Clone, PartialEq)]
 enum Rule {
     Selecter(String, Vec<(String, String)>),
+    Keyframes(String, Style),
     Media(String, Style),
 }
 
@@ -92,6 +93,11 @@ impl Style {
             .push(Rule::Selecter(selecter, vec![(property, value)]));
     }
 
+    pub fn add_keyframes(&mut self, name: impl Into<String>, style: Style) {
+        let name = name.into();
+        self.rules.push(Rule::Keyframes(name, style));
+    }
+
     pub fn add_media(&mut self, query: impl Into<String>, style: Style) {
         let query = query.into();
         self.rules.push(Rule::Media(query, style));
@@ -104,6 +110,9 @@ impl Style {
                     for (p, v) in defs {
                         self.add(s, p, v);
                     }
+                }
+                Rule::Keyframes(n, s) => {
+                    self.add_keyframes(n, s.clone());
                 }
                 Rule::Media(q, s) => {
                     self.add_media(q, s.clone());
@@ -131,6 +140,18 @@ impl Style {
                         str_rule += format!("{}:{};", property, value).as_str();
                     }
                     str_rule += "}";
+                    str_rule
+                }
+
+                Rule::Keyframes(name, keyframes) => {
+                    let mut str_rule = String::from("@keyframes ");
+                    str_rule += name;
+                    str_rule += "{";
+                    for child_rule in &keyframes.rules::<C>() {
+                        str_rule += child_rule;
+                    }
+                    str_rule += "}";
+
                     str_rule
                 }
 
@@ -221,6 +242,18 @@ impl std::fmt::Debug for Style {
                     for (property, value) in defs {
                         return_if!(x = write!(f, "    {}: {};\n", property, value); x.is_err());
                     }
+                    return_if!(x = write!(f, "{}\n", "}"); x.is_err());
+                }
+
+                Rule::Keyframes(name, keyframes) => {
+                    return_if!(x = write!(f, "@keyframes {} {}\n", name, "{"); x.is_err());
+
+                    for a_line in format!("{:?}", keyframes).split("\n") {
+                        if a_line != "" {
+                            return_if!(x = write!(f, "    {}\n", a_line); x.is_err());
+                        }
+                    }
+
                     return_if!(x = write!(f, "{}\n", "}"); x.is_err());
                 }
 
