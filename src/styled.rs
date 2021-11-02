@@ -47,18 +47,20 @@ pub trait Styled: Sized {
     }
 }
 
+#[derive(Clone, PartialEq)]
+enum Rule {
+    Selecter(String, Vec<(String, String)>),
+    Media(String, Style),
+}
+
 #[derive(Clone)]
 pub struct Style {
-    style: Vec<(String, Vec<(String, String)>)>,
-    media: Vec<(String, Self)>,
+    rules: Vec<Rule>,
 }
 
 impl Style {
     pub fn new() -> Self {
-        Self {
-            style: vec![],
-            media: vec![],
-        }
+        Self { rules: vec![] }
     }
 
     pub fn add(
@@ -67,72 +69,88 @@ impl Style {
         property: impl Into<String>,
         value: impl Into<String>,
     ) {
-        let selector = selector.into();
+        let selecter = selector.into();
         let property = property.into();
         let value = value.into();
 
-        if let Some(class_idx) = self.style.iter().position(|s| s.0 == selector) {
-            if let Some(property_idx) = self.style[class_idx].1.iter().position(|p| p.0 == property)
-            {
-                self.style[class_idx].1[property_idx].1 = value;
-            } else {
-                self.style[class_idx].1.push((property, value));
+        for rule in self.rules.iter_mut() {
+            match rule {
+                Rule::Selecter(s, defs) if *s == selecter => {
+                    for (p, v) in defs.iter_mut() {
+                        if *p == property {
+                            *v = value;
+                            return;
+                        }
+                    }
+                    defs.push((property, value));
+                    return;
+                }
+                _ => {}
             }
-        } else {
-            self.style.push((selector, vec![(property, value)]));
         }
+        self.rules
+            .push(Rule::Selecter(selecter, vec![(property, value)]));
     }
 
     pub fn add_media(&mut self, query: impl Into<String>, style: Style) {
         let query = query.into();
-        self.media.push((query, style));
+        self.rules.push(Rule::Media(query, style));
     }
 
     pub fn append(&mut self, other: &Self) {
-        for (selector, definition_block) in &other.style {
-            for (property, value) in definition_block {
-                self.add(selector, property, value);
+        for rule in &other.rules {
+            match rule {
+                Rule::Selecter(s, defs) => {
+                    for (p, v) in defs {
+                        self.add(s, p, v);
+                    }
+                }
+                Rule::Media(q, s) => {
+                    self.add_media(q, s.clone());
+                }
             }
-        }
-
-        for (query, style) in &other.media {
-            self.add_media(query, style.clone());
         }
     }
 
     fn rules<C>(&self) -> Vec<String> {
-        let mut res = vec![];
+        let mut str_rules = vec![];
 
-        for (selector, definition_block) in &self.style {
-            let mut rule = String::new();
-            let selector = CLASS_SELECTER.with(|class_selecter| {
-                class_selecter.replace_all(
-                    selector,
-                    format!("._{}__$1", styled_class_prefix::<C>()).as_str(),
-                )
-            });
-            rule += &selector;
-            rule += "{";
-            for (property, value) in definition_block {
-                rule += format!("{}:{};", property, value).as_str();
-            }
-            rule += "}";
+        for rule in self.rules.iter() {
+            let str_rule = match rule {
+                Rule::Selecter(selecter, defs) => {
+                    let mut str_rule = String::new();
+                    let str_selecter = CLASS_SELECTER.with(|class_selecter| {
+                        class_selecter.replace_all(
+                            selecter,
+                            format!("._{}__$1", styled_class_prefix::<C>()).as_str(),
+                        )
+                    });
+                    str_rule += &str_selecter;
+                    str_rule += "{";
+                    for (property, value) in defs {
+                        str_rule += format!("{}:{};", property, value).as_str();
+                    }
+                    str_rule += "}";
+                    str_rule
+                }
 
-            res.push(rule);
+                Rule::Media(query, media_style) => {
+                    let mut str_rule = String::from("@media ");
+                    str_rule += query;
+                    str_rule += "{";
+                    for child_rule in &media_style.rules::<C>() {
+                        str_rule += child_rule;
+                    }
+                    str_rule += "}";
+
+                    str_rule
+                }
+            };
+
+            str_rules.push(str_rule);
         }
 
-        for (query, media_style) in &self.media {
-            let mut rule = String::from("@media ");
-            rule += query;
-            rule += "{";
-            for child_rule in &media_style.rules::<C>() {
-                rule += child_rule;
-            }
-            rule += "}";
-            res.push(rule);
-        }
-
-        res
+        str_rules
     }
 
     fn write<C>(&self) {
@@ -196,24 +214,28 @@ macro_rules! return_if {
 
 impl std::fmt::Debug for Style {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for (selector, definition_block) in &self.style {
-            return_if!(x = write!(f, "{} {}\n", selector, "{"); x.is_err());
-            for (property, value) in definition_block {
-                return_if!(x = write!(f, "    {}: {};\n", property, value); x.is_err());
-            }
-            return_if!(x = write!(f, "{}\n", "}"); x.is_err());
-        }
+        for rule in &self.rules {
+            match rule {
+                Rule::Selecter(selecter, defs) => {
+                    return_if!(x = write!(f, "{} {}\n", selecter, "{"); x.is_err());
+                    for (property, value) in defs {
+                        return_if!(x = write!(f, "    {}: {};\n", property, value); x.is_err());
+                    }
+                    return_if!(x = write!(f, "{}\n", "}"); x.is_err());
+                }
 
-        for (query, style) in &self.media {
-            return_if!(x = write!(f, "@media {} {}\n", query, "{"); x.is_err());
+                Rule::Media(query, style) => {
+                    return_if!(x = write!(f, "@media {} {}\n", query, "{"); x.is_err());
 
-            for a_line in format!("{:?}", style).split("\n") {
-                if a_line != "" {
-                    return_if!(x = write!(f, "    {}\n", a_line); x.is_err());
+                    for a_line in format!("{:?}", style).split("\n") {
+                        if a_line != "" {
+                            return_if!(x = write!(f, "    {}\n", a_line); x.is_err());
+                        }
+                    }
+
+                    return_if!(x = write!(f, "{}\n", "}"); x.is_err());
                 }
             }
-
-            return_if!(x = write!(f, "{}\n", "}"); x.is_err());
         }
 
         write!(f, "")
@@ -222,46 +244,90 @@ impl std::fmt::Debug for Style {
 
 impl PartialEq for Style {
     fn eq(&self, other: &Self) -> bool {
-        self.style.eq(&other.style) && self.media.eq(&other.media)
+        self.rules.eq(&other.rules)
     }
 }
 
 #[macro_export]
 macro_rules! style {
+
     {
+        instance: $inst:ident;
+        @charset $import:expr;
+        $($others:tt)*
+    } => {{
+        $inst.appned(&($import));
+
+        style! {
+            instance: $inst;
+            $($otehrs)*
+        }
+    }};
+
+    {
+        instance: $inst:ident;
+        @import $import:expr;
+        $($others:tt)*
+    } => {{
+        $inst.appned(&($import));
+
+        style! {
+            instance: $inst;
+            $($otehrs)*
+        }
+    }};
+
+    {
+        instance: $inst:ident;
+        @media $query:tt {$($media_style:tt)*}
+        $($others:tt)*
+    } => {{
+        $inst.add_media($query, style!{$($media_style)*});
+
+        style! {
+            instance: $inst;
+        }
+    }};
+
+    {
+        instance: $inst:ident;
+        $selector:literal {$(
+            $property:tt : $value:expr;
+        )*}
+        $($others:tt)*
+    } => {{
         $(
-            @import $import:expr;
+            $inst.add(format!("{}", $selector), format!("{}", $property), format!("{}", $value));
         )*
-        $(
-            $selector:literal {$(
-                $property:tt : $value:expr
-            );*;}
-        )*
-        $(
-            @media $query:tt {$(
-                $media_style:tt
-            )*}
-        )*
+
+        style! {
+            instance: $inst;
+            $($others)*
+        }
+    }};
+
+    {
+        instance: $inst:ident;
+    } => {{}};
+
+    {
+        $($others:tt)*
     } => {{
         #[allow(unused_mut)]
-        let mut style = Style::new();
-        $(
-            style.append(&($import));
-        )*
-        $(
-            $(
-                style.add(format!("{}", $selector), format!("{}", $property), format!("{}", $value));
-            )*
-        )*
-        $(
-            style.add_media($query, style!{$($media_style)*});
-        )*
-        style
+        let mut instance = Style::new();
+
+        style! {
+            instance: instance;
+            $($others)*
+        };
+
+        instance
     }};
 }
 
 #[cfg(test)]
 mod tests {
+    use super::Rule;
     use super::Style;
 
     #[test]
@@ -272,15 +338,15 @@ mod tests {
     #[test]
     fn debug_style() {
         let style = Style {
-            style: vec![
-                (
+            rules: vec![
+                Rule::Selecter(
                     String::from("foo"),
                     vec![
                         (String::from("width"), String::from("100px")),
                         (String::from("height"), String::from("100px")),
                     ],
                 ),
-                (
+                Rule::Selecter(
                     String::from("bar"),
                     vec![
                         (String::from("width"), String::from("100px")),
@@ -288,7 +354,6 @@ mod tests {
                     ],
                 ),
             ],
-            media: vec![],
         };
 
         let style_str = concat!(
@@ -308,15 +373,15 @@ mod tests {
     #[test]
     fn debug_style_with_media() {
         let media_style = Style {
-            style: vec![
-                (
+            rules: vec![
+                Rule::Selecter(
                     String::from("foo"),
                     vec![
                         (String::from("width"), String::from("100px")),
                         (String::from("height"), String::from("100px")),
                     ],
                 ),
-                (
+                Rule::Selecter(
                     String::from("bar"),
                     vec![
                         (String::from("width"), String::from("100px")),
@@ -324,26 +389,25 @@ mod tests {
                     ],
                 ),
             ],
-            media: vec![],
         };
         let style = Style {
-            style: vec![
-                (
+            rules: vec![
+                Rule::Selecter(
                     String::from("foo"),
                     vec![
                         (String::from("width"), String::from("100px")),
                         (String::from("height"), String::from("100px")),
                     ],
                 ),
-                (
+                Rule::Selecter(
                     String::from("bar"),
                     vec![
                         (String::from("width"), String::from("100px")),
                         (String::from("height"), String::from("100px")),
                     ],
                 ),
+                Rule::Media(String::from("query"), media_style),
             ],
-            media: vec![(String::from("query"), media_style)],
         };
 
         let style_str = concat!(
@@ -373,15 +437,15 @@ mod tests {
     #[test]
     fn gen_style_by_manual() {
         let style_a = Style {
-            style: vec![
-                (
+            rules: vec![
+                Rule::Selecter(
                     String::from("foo"),
                     vec![
                         (String::from("width"), String::from("100px")),
                         (String::from("height"), String::from("100px")),
                     ],
                 ),
-                (
+                Rule::Selecter(
                     String::from("bar"),
                     vec![
                         (String::from("width"), String::from("100px")),
@@ -389,7 +453,6 @@ mod tests {
                     ],
                 ),
             ],
-            media: vec![],
         };
 
         let mut style_b = Style::new();
@@ -404,15 +467,15 @@ mod tests {
     #[test]
     fn gen_style_with_media_by_manual() {
         let media_style_a = Style {
-            style: vec![
-                (
+            rules: vec![
+                Rule::Selecter(
                     String::from("foo"),
                     vec![
                         (String::from("width"), String::from("100px")),
                         (String::from("height"), String::from("100px")),
                     ],
                 ),
-                (
+                Rule::Selecter(
                     String::from("bar"),
                     vec![
                         (String::from("width"), String::from("100px")),
@@ -420,26 +483,25 @@ mod tests {
                     ],
                 ),
             ],
-            media: vec![],
         };
         let style_a = Style {
-            style: vec![
-                (
+            rules: vec![
+                Rule::Selecter(
                     String::from("foo"),
                     vec![
                         (String::from("width"), String::from("100px")),
                         (String::from("height"), String::from("100px")),
                     ],
                 ),
-                (
+                Rule::Selecter(
                     String::from("bar"),
                     vec![
                         (String::from("width"), String::from("100px")),
                         (String::from("height"), String::from("100px")),
                     ],
                 ),
+                Rule::Media(String::from("query"), media_style_a),
             ],
-            media: vec![(String::from("query"), media_style_a)],
         };
 
         let mut media_style_b = Style::new();
@@ -507,8 +569,8 @@ mod tests {
 
             @media "query" {
                 "foo" {
-                "width": "100px";
-                "height": "100px";
+                    "width": "100px";
+                    "height": "100px";
                 }
 
                 "bar" {
