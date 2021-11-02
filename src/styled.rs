@@ -293,20 +293,33 @@ macro_rules! style {
 
         style! {
             instance: $inst;
-            $($otehrs)*
+            $($others)*
         }
     }};
 
     {
         instance: $inst:ident;
-        @import $import:expr;
+        @extends $extends:expr;
         $($others:tt)*
     } => {{
-        $inst.appned(&($import));
+        $inst.appned(&($extends));
 
         style! {
             instance: $inst;
-            $($otehrs)*
+            $($others)*
+        }
+    }};
+
+    {
+        instance: $inst:ident;
+        @keyframes $name:tt {$($keyframes:tt)*}
+        $($others:tt)*
+    } => {{
+        $inst.add_keyframes($name, style!{$($keyframes)*});
+
+        style! {
+            instance: $inst;
+            $($others)*
         }
     }};
 
@@ -319,6 +332,7 @@ macro_rules! style {
 
         style! {
             instance: $inst;
+            $($others)*
         }
     }};
 
