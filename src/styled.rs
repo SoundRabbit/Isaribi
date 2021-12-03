@@ -289,7 +289,7 @@ macro_rules! style {
         @charset $import:expr;
         $($others:tt)*
     } => {{
-        $inst.appned(&($import));
+        $inst.append(&($import));
 
         style! {
             instance: $inst;
@@ -302,7 +302,7 @@ macro_rules! style {
         @extends $extends:expr;
         $($others:tt)*
     } => {{
-        $inst.appned(&($extends));
+        $inst.append(&($extends));
 
         style! {
             instance: $inst;
